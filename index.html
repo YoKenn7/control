@@ -266,13 +266,15 @@
       let s;
       try { s = new WebSocket(`wss://${h}:3001`); } catch { failed++; return; }
       round.socks.push(s);
+      s.onerror = () => log(`Error de socket con ${h}`);
       s.onopen = () => {
+        log(`WebSocket abierto con ${h}`);
         if (round.over) { s.close(); return; }
         round.over = true; clearTimeout(to);
         round.socks.forEach(o => { if (o !== s) try { o.close(); } catch {} });
         adopt(s, h);
       };
-      s.onclose = () => { if (!round.over && ++failed >= hosts.length) { clearTimeout(to); end(); } };
+      s.onclose = (e) => { log(`Cerrado ${h} (código ${e.code})`); if (!round.over && ++failed >= hosts.length) { clearTimeout(to); end(); } };
     });
     if (failed >= hosts.length) { clearTimeout(to); end(); }
   }
@@ -282,13 +284,15 @@
     hosts = [h, ...hosts.filter(x => x !== h)]; store.set('hosts', hosts);
     setStatus('Emparejando con ' + h, 'busy');
     s.onmessage = onMsg;
-    s.onclose = () => {
+    s.onclose = (e) => {
+      log(`Conexión cerrada por la TV (código ${e.code}${e.reason ? ', ' + e.reason : ''})`);
       ws = null; pws = null; state = 'idle';
       setStatus('Conexión perdida, reconectando…', 'warn');
-      retry(1500);
+      retry(4000);
     };
-    s.onerror = () => {};
+    s.onerror = () => log('Error en el socket principal');
     s.send(JSON.stringify({ type: 'register', id: 'register_0', payload: registerPayload() }));
+    log('Registro enviado' + (clientKey ? ' (con clave guardada)' : ' (sin clave, pide aceptar en la TV)'));
   }
 
   function registerPayload() {
@@ -313,6 +317,7 @@
   }
 
   function onMsg(ev) {
+    log('TV → ' + String(ev.data).slice(0, 300));
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     if (m.type === 'response' && m.id === 'register_0') {
       setStatus('Acepta el emparejamiento en la pantalla de la TV', 'warn');
